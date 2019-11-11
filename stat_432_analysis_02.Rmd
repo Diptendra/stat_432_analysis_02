@@ -1,0 +1,307 @@
+---
+title: "Can we predict heart disease accurately?"
+author: "Diptendra Nath Bagchi (dbagchi2@illinois.edu)"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  html_document: 
+    theme: cosmo
+    toc: yes
+  pdf_document: default
+urlcolor: BrickRed
+---
+
+```{r, setup, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, fig.align = 'center')
+```
+
+```{r, load-packages, include = FALSE}
+# load packages
+library(rsample)
+library(knitr)
+library(kableExtra)
+library(ggplot2)
+library(gridExtra)
+library(tidyverse)
+library(caret)
+```
+
+***
+
+# Abstract
+
+ > The objective of the report to is to see if the statistical learning techniques can be judiciously used to predict if an individual has a heart disease or not. Additionally, we go one step further and see if we can predict the number of vessels narrowing by more than 50% - which is defined as a heart disease.
+
+***
+
+# Introduction
+
+The heart is a muscular organ in most animals, which pumps blood through the blood vessels of the circulatory system. Blood provides the body with oxygen and nutrients, as well as assisting in the removal of metabolic wastes. In humans, the heart is located between the lungs, in the middle compartment of the chest.[^1]
+
+Heart disease is the leading cause of death among men and women in the United States. Coronary artery disease affects 16.5 million Americans. The American Heart Association (AHA) estimates that someone in the US has a heart attack about every 40 seconds. In addition, for patients with no risk factors for heart disease, the lifetime risk of having cardiovascular disease is 3.6% for men and less than 1% for women. Having 2 or more risk factors increase the lifetime risk of cardiovascular disease to 37.5% for men and 18.3% in women.[^2]
+
+There are various kinds of heart disease but we will be focussing on cornoary artery disease for this analysis. Coronary artery disease develops when the major blood vessels that supply the heart with blood, oxygen and nutrients (coronary arteries) become damaged or diseased. Cholesterol-containing deposits (plaque) in the arteries and inflammation are usually to blame for coronary artery disease. When plaque builds up, it narrows the coronary arteries, decreasing blood flow to the heart. Eventually, the decreased blood flow may cause chest pain (angina), shortness of breath, or other coronary artery disease signs and symptoms. A complete blockage can cause a heart attack.[^3]
+
+Some of the cause that increases the risk of the disease are the following.
+- age
+- family history
+- high blood pressure
+- high cholesterol
+- smoking
+- poor diet
+- obesity or being very overweight
+- not exercising (sedentary lifestyle)
+- other health conditions (diabetes).
+
+As narrowing of arteries takes a long time, it is a good idea if we are able to use some statistical learning techniques using the knowledge that we have on some of the potential reasons that increases the risk of such a disease could be really helpful in the medical industry as a lot of preventive care could be taken before anythin serious happens to a patient.
+
+***
+
+# Methods
+
+## Data
+
+The data was download from the University of California, Irvine Machine Learning Repository(Open Source Database). The data contains various records of individuals from four data bases i.e. Cleveland, Hungary, Switzerland, and the VA Long Beach. There is an additional variable that was created named, num_bin - which tells us if there is an individual has a heart disease or not, wher heart disease is defined as more than one artery is narrow by more than 50%. This new column has been created for modifying the problem from a multiclass to binary class classification as it is the first step to know if there is a heart disease or not before knowing what kind of heart disease is that.
+
+```{r, load-data, message = FALSE}
+heart = read_csv(file ="data/heart-disease.csv")
+```
+
+```{r, create a binary variable}
+heart = heart %>% 
+  mutate_if(is.character, as.factor)
+heart$num_bin = factor(case_when(
+  heart$num == "v0" ~ "none",
+  TRUE ~ "some"
+))
+```
+
+```{r, data-split}
+heart_trn_tst = initial_split(heart, prop = 0.80)
+heart_trn = training(heart_trn_tst)
+heart_tst = testing(heart_trn_tst)
+```
+
+## Part I: Predicting the absence or presence of a heart disease
+
+### Modeling
+
+In order to predict the presence of the heart disease, four modeling techniques were considered: k-nearnest neighbors, logistic regression, random forest and neaural network. They were all used with the default parameters. In this modeling part, only `num_bin` (binary classification) is used and hence it is a problem of binary classification. All the variables are used for the prediction except `num` because including that variable would have been a huge mistake as the response variable is created based on that.
+
+```{r, disease: yes/no, message = FALSE}
+knn_mod = train(num_bin ~ . - num, 
+                data = heart_trn,
+                method = "knn",
+                trControl = trainControl(method = "cv", number = 10))
+lm_mod = train(num_bin ~ . - num, 
+               data = heart_trn, 
+               method = "glm", family = "binomial",
+               trControl = trainControl(method = "cv", number = 10))
+rf_mod = train(num_bin ~ . - num, 
+               data = heart_trn, 
+               method = "rf",
+               trControl = trainControl(method = "oob"),
+               verbose = FALSE)
+nnet_mod = train(num_bin ~ . - num,
+                 data = heart_trn, 
+                 method = "nnet", 
+                 trace = FALSE,
+                 trControl = trainControl(method = "cv", number = 10))
+```
+
+### Evaluation
+
+To evaluate the ability to predict the absence or presence of the a heart disease, the data was split into training and testing sets. We did not divide into a separte validation set as we used cross validation technique to choose the best model and their optimal parameters. For the binary classification, cross validated accuracy and confusion matrix is used.
+
+```{r}
+cv_accuracy = tibble("K-Nearest Neighbours" = max(knn_mod$results$Accuracy),
+                     "Logistic Model" = max(lm_mod$results$Accuracy),
+                     "Random Forest" = max(rf_mod$results$Accuracy),
+                     "Neural Network" = max(nnet_mod$results$Accuracy))
+cv_accuracy %>% 
+  kable(digits = 2, 
+        align = "c") %>% 
+  kable_styling(bootstrap_options = c("striped","hover"),
+                position = "center", 
+                full_width = FALSE) %>% 
+  add_header_above(header = c("Cross Validated Accuracy (Binary Classification)" = 4))
+```
+
+```{r}
+cof_matrix = confusionMatrix(data = predict(object = rf_mod, newdata = heart_tst, type = "raw"),
+                reference = heart_tst$num_bin, 
+                positive = "some" 
+                )
+cof_matrix$table %>% 
+  kable(digits = 2) %>% 
+  kable_styling(bootstrap_options = "striped", full_width = FALSE) %>% 
+  add_header_above(header = c("Confusion Matrix" = 3))
+
+```
+
+## Part II: Predicting the type of the heart disease
+
+### Modeling
+
+In order to predict the type of the heart disease, four modeling techniques were considered: k-nearnest neighbors, multinomial regression, random forest and neaural network. They were all used with the default parameters. In this modeling part, only `num` (multiclass) is used and hence it is a problem of multiclass classification. All the variables are used for the prediction except `num_bin`.
+
+```{r, disease:type, message = FALSE}
+knn_mod_type = train(num ~ . - num_bin, 
+                     data = heart_trn,
+                     method = "knn",
+                     trControl = trainControl(method = "cv", number = 10))
+lm_mod_type = train(num ~ . - num_bin, 
+                    data = heart_trn, 
+                    method = "multinom",
+                    trace = FALSE,
+                    trControl = trainControl(method = "cv", number = 10))
+rf_mod_type = train(num ~ . - num_bin, 
+                    data = heart_trn, 
+                    method = "rf",
+                    trControl = trainControl(method = "oob"),
+                    verbose = FALSE)
+nnet_mod_type = train(num ~ . - num_bin,
+                      data = heart_trn, 
+                      method = "nnet", 
+                      trace = FALSE,
+                      trControl = trainControl(method = "cv", number = 10))
+```
+
+### Evaluation
+
+To evaluate the ability to predict the type of the heart disease, the data was split into training and testing sets. We did not divide into a separte validation set as we used cross validation technique to choose the best model and their optimal parameters. For the multiclass classification, cross validated accuracy is used.
+
+```{r, message = FALSE}
+cv_accuracy = tibble("K-Nearest Neighbours" = max(knn_mod_type$results$Accuracy),
+                     "Multinomial Model" = max(lm_mod_type$results$Accuracy),
+                     "Random Forest" = max(rf_mod_type$results$Accuracy),
+                     "Neural Network" = max(nnet_mod_type$results$Accuracy))
+cv_accuracy %>% 
+  kable(digits = 2, 
+        align = 'c') %>% 
+  kable_styling(bootstrap_options = c("striped","hover"),
+                position = "center", 
+                full_width = FALSE) %>% 
+  add_header_above(header = c("Cross Validated Accuracy (Multiclass Classification)" = 4))
+```
+
+```{r}
+plot(rf_mod_type)
+```
+
+
+***
+# Results
+
+```{r, graphical-results, fig.height = 4, fig.width = 12}
+# par(mfrow = c(1, 3))
+# plot(x = predict(lm_mod, sleep_val), y = sleep_val$min_asleep,
+#      xlim = c(0, 600), ylim = c(0, 600), pch = 16, col = "grey",
+#      xlab = "Predicted min_asleep", ylab = "Actual min_asleep",
+#      main = "Linear Model")
+# abline(a = 0, b = 1, col = "green")
+# grid()
+# 
+# plot(x = predict(knn_mod, sleep_val), y = sleep_val$min_asleep,
+#      xlim = c(0, 600), ylim = c(0, 600), pch = 16, col = "grey",
+#      xlab = "Predicted min_asleep", ylab = "Actual min_asleep",
+#      main = "KNN Model")
+# abline(a = 0, b = 1, col = "blue")
+# grid()
+# 
+# plot(x = predict(tree_mod, sleep_val), y = sleep_val$min_asleep,
+#      xlim = c(0, 600), ylim = c(0, 600), pch = 16, col = "grey",
+#      xlab = "Predicted min_asleep", ylab = "Actual min_asleep",
+#      main = "Tree Model")
+# abline(a = 0, b = 1, col = "orange")
+# grid()
+```
+
+***
+
+# Discussion
+
+```{r, test-accuracy}
+heart_tst_accuracy_binary = mean(
+  predict(object = rf_mod, newdata = heart_tst, type = "raw") == heart_tst$num_bin)
+heart_tst_accuracy_multi = mean(
+  predict(object = rf_mod_type, newdata = heart_tst, type = "raw") == heart_tst$num)
+joint_tst_accuracy = tibble("Binary Classification" = heart_tst_accuracy_binary,
+                            "Multi-Class Classification" = heart_tst_accuracy_multi)
+joint_tst_accuracy %>% 
+  kable(digits = 2, align = "c") %>% 
+  kable_styling(bootstrap_options = "striped",
+                full_width = FALSE)
+```
+
+```{r Proportion}
+final = tibble("actual" = heart_tst$num,
+              "binary" = predict(object = rf_mod, newdata = heart_tst, type = "raw"), 
+              "multiclass" = predict(object = rf_mod_type, newdata = heart_tst, type = "raw"))
+final %>% 
+  filter(binary == "some") %>% 
+  summarise(Accuracy = mean(multiclass == actual))
+
+
+```
+
+```{r}
+final
+```
+
+
+Talking about the three models, yes, some of them are useful to depict a basic relationship between the time asleep and the time in bed. Because, they are very basic models with just one variable, they are useful upto a level. The best model out of these three models *Linear*, *KNN*, *Tree* is Linear Model because it we look at the plot above for all three models, the **Linear** model is the best model because other two models has some problems. For e.g. *KNN* is underestimating in a many case which is not the case with linear model and *Tree* is always producing only 4 distinct values, which is not very helpful. The linear model has a test rmse of  . Also, because the data points are so close to the regressed line, it looks like the variance is also constant and does not vary with the values of y, which is a desirable condition in linear regression.
+
+***
+
+# Appendix
+
+## Data Dictionary
+
+- `age` - age in years.
+- `sex` - sex
+  - 1 = male
+  - 0 = female
+- `cp` - chest pain type
+  - Value 1: typical angina
+  - Value 2: atypical angina
+  - Value 3: non-anginal pain
+  - Value 4: asymptomatic
+- `trestbps` - resting blood pressure (in mm Hg on admission to the hospital).
+- `chol` - serum cholestoral in mg/dl.
+- `fbs` - fasting blood sugar > 120 mg/dl
+  - 1 = true
+  - 0 = false
+- `restecg` - resting electrocardiographic results
+  - Value 0: normal
+  - Value 1: having ST-T wave abnormality (T wave inversions and/or ST elevation or
+  depression of > 0.05 mV)
+  - Value 2: showing probable or definite left ventricular hypertrophy by Estes criteria
+- `thalach` - maximum heart rate achieved.
+- `exang` - exercise induced angina 
+  - 1 = yes
+  - 0 = no
+- `oldpeak` - ST depression induced by exercise relative to rest.
+- `location` - ch, cl, hu, va.
+- `num` - diagnosis of heart disease (angiographic disease status)
+  - Value 0: < 50% diameter narrowing
+  - Value 1: > 50% diameter narrowing
+
+
+
+
+
+
+## EDA
+
+[^1]: [Wikipedia                                            Heart](https://en.wikipedia.org/wiki/Heart)
+[^2]: [Coronary Artery           Disease](https://my.clevelandclinic.org/health/diseases/16898-coronary-artery-disease)
+[^3]: [Coronary Artery Disease](https://www.mayoclinic.org/diseases-conditions/coronary-artery-disease/symptoms-causes/syc-20350613)
+[^4]: [UCI Machine Learning       Respository](https://archive.ics.uci.edu/ml/datasets/heart+Disease)
+
+
+[^3]: [Picture of the Heart](https://www.webmd.com/heart/picture-of-the-heart#1)
+[^4]: [Consumer sleep tracking devices: a review of mechanisms, validity and utility](https://www.tandfonline.com/doi/abs/10.1586/17434440.2016.1171708)
+[^5]: [Everything you need to know about sleep, but are too tired to ask](https://news.berkeley.edu/2017/10/17/whywesleep/)
+[^6]: [Wikipedia: Fitbit](https://en.wikipedia.org/wiki/Fitbit)
+[^7]: The author would like to note that Fitbit makes it incredibly difficult for users to obtain their own data.
+[^8]: [Wikipedia: Heart rate variability](https://en.m.wikipedia.org/wiki/Heart_rate_variability)
